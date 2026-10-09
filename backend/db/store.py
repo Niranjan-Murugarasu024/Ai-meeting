@@ -8,7 +8,7 @@ from pathlib import Path
 from ..models.schemas import (
     Meeting, TranscriptSegment, Speaker, Summary, Decision, ActionItem,
     TopicSegment, KeyPhrase, EffectivenessScore, AudioDiagnostics,
-    MeetingStatus, ActionItemStatus, PlatformType, IntegrationsConfig, SearchResult
+    MeetingStatus, ActionItemStatus, PlatformType, IntegrationsConfig, DistributionRecord
 )
 from .database import get_db_connection, init_db
 from ..pipeline.speech_engine import speech_engine
@@ -501,5 +501,79 @@ class SQLiteMeetingStore:
             VALUES ('active_config', ?)
             """, (json.dumps(cfg.dict()),))
             conn.commit()
+
+    def process_live_meeting_end(
+        self,
+        meeting_id: str,
+        title: str,
+        platform: PlatformType = PlatformType.ZOOM,
+        meeting_url: str = "",
+        slack_channel: str = ""
+    ) -> Meeting:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            now = datetime.datetime.utcnow().isoformat()
+
+            cursor.execute("""
+            INSERT OR REPLACE INTO meetings (
+                id, title, platform, meeting_url, uploaded_at, duration_seconds,
+                status, recording_url, host_name, participants_count, file_name,
+                file_size_bytes, error_message
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                meeting_id, title, platform.value, meeting_url, now, 0,
+                MeetingStatus.READY.value, None, "Live Bot", 0, None, 0, None
+            ))
+            conn.commit()
+
+        m = self.get_meeting(meeting_id)
+        if m:
+            m.summary = Summary(
+                id=f"sum-{meeting_id}",
+                meeting_id=meeting_id,
+                executive_summary="Mock live meeting summary.",
+                key_decisions=[],
+                ai_model_version="mock",
+                created_at=now,
+                distribution=DistributionRecord(
+                    slack_channel=slack_channel,
+                    slack_status="mock_delivered",
+                    jira_tasks_created=[],
+                    linear_tasks_created=[]
+                )
+            )
+            return m
+        return Meeting(
+            id=meeting_id,
+            title=title,
+            platform=platform,
+            meeting_url=meeting_url,
+            uploaded_at=now,
+            duration_seconds=0,
+            status=MeetingStatus.READY,
+            recording_url="",
+            host_name="Live Bot",
+            participants_count=0,
+            file_name="",
+            file_size_bytes=0,
+            speakers=[],
+            action_items_count={"total": 0, "open": 0, "in_progress": 0, "done": 0}
+        )
+
+    def get_subject_index(self) -> List[str]:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT subject_id FROM speakers WHERE subject_id IS NOT NULL")
+            rows = cursor.fetchall()
+            return [r["subject_id"] for r in rows]
+
+    def purge_subject_data(self, subject_id: str) -> Dict[str, Any]:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM transcript_segments WHERE subject_id = ?", (subject_id,))
+            cursor.execute("DELETE FROM speakers WHERE subject_id = ?", (subject_id,))
+            cursor.execute("UPDATE action_items SET assignee_subject_id = NULL WHERE assignee_subject_id = ?", (subject_id,))
+            conn.commit()
+        return {"success": True, "message": f"Subject {subject_id} data purged successfully"}
 
 py_store = SQLiteMeetingStore()
