@@ -4,6 +4,8 @@ from ..models.schemas import (
 )
 from ..integrations.slack_service import slack_service
 from ..integrations.task_tracker_service import task_tracker_service
+from ..integrations.crm_service import crm_service
+from ..integrations.calendar_service import calendar_service
 import datetime
 
 class DistributionManager:
@@ -12,6 +14,8 @@ class DistributionManager:
     Orchestrates post-meeting delivery:
     1. Posts structured recap to Slack channel: "Meeting summary for {meeting_title}"
     2. Provisions tasks in Jira / Linear from extracted action items
+    3. Logs meeting summary to CRM
+    4. Syncs meeting notes back to the original Calendar event
     """
 
     def execute_distribution(
@@ -41,12 +45,26 @@ class DistributionManager:
             action_items=action_items
         )
 
+        # 3. Log to CRM
+        crm_res = crm_service.log_meeting(
+            meeting_title=meeting_title,
+            summary=executive_summary
+        )
+
+        # 4. Sync to Calendar
+        calendar_res = calendar_service.update_event_notes(
+            meeting_title=meeting_title,
+            summary=executive_summary
+        )
+
         return DistributionRecord(
             slack_channel=slack_channel,
             slack_status="sent",
             slack_message_preview=slack_res["headline"],
             jira_tasks_created=task_res["jira_keys"],
             linear_tasks_created=task_res["linear_urls"],
+            crm_record_id=crm_res["record_id"],
+            calendar_event_id=calendar_res["event_id"],
             dispatched_at=datetime.datetime.utcnow().isoformat()
         )
 

@@ -124,6 +124,8 @@ export interface DistributionRecord {
   slack_message_preview?: string;
   jira_tasks_created: string[];
   linear_tasks_created: string[];
+  crm_record_id?: string;
+  calendar_event_id?: string;
   dispatched_at?: string;
 }
 
@@ -216,6 +218,10 @@ export interface IntegrationsConfig {
   jira_domain?: string;
   jira_project_key: string;
   linear_team_id?: string;
+  salesforce_domain?: string;
+  hubspot_api_key?: string;
+  google_calendar_token?: string;
+  outlook_calendar_token?: string;
 }
 
 export interface MeetingEvalMetric {
