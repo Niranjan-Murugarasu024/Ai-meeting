@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Header, Request, Query, APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Header, Request, Query, APIRouter, WebSocket, WebSocketDisconnect, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -21,6 +21,7 @@ from .models.schemas import (
     IntegrationsConfig, SearchResult
 )
 from .db.store import py_store
+from .pipeline.chunker import chunk_transcript
 from .integrations.zoom_service import zoom_service
 from .integrations.google_meet_service import google_meet_service
 from .integrations.ms_teams_service import ms_teams_service
@@ -173,9 +174,42 @@ def patch_action(id: str, payload: Dict[str, Any]):
         "action_item": updated.dict()
     }
 
+def run_meeting_processing(
+    meeting_id: str,
+    title: str,
+    audio_path: str,
+    file_name: str,
+    file_size_bytes: int,
+    host_name: str,
+    recording_url: str
+):
+    try:
+        py_store.process_real_meeting(
+            meeting_id=meeting_id,
+            title=title,
+            audio_path=audio_path,
+            file_name=file_name,
+            file_size_bytes=file_size_bytes,
+            host_name=host_name,
+            platform=PlatformType.UPLOAD,
+            recording_url=recording_url
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        from .db.database import get_db_connection
+        import datetime
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE meetings SET status = ?, error_message = ?, uploaded_at = ? WHERE id = ?", (
+                "failed", str(e), datetime.datetime.utcnow().isoformat(), meeting_id
+            ))
+            conn.commit()
+
 # 9. POST /api/meetings/upload
 @app.post("/api/meetings/upload")
 async def upload_meeting_file(
+    background_tasks: BackgroundTasks,
     file: Optional[UploadFile] = File(None),
     title: Optional[str] = Form(None),
     host_name: Optional[str] = Form("Alex Johnson")
@@ -202,24 +236,33 @@ async def upload_meeting_file(
         recording_url = f"/uploads/{file_name}"
         meeting_title = title if title else "Recorded Meeting Discussion"
 
-    try:
-        meeting = py_store.process_real_meeting(
-            meeting_id=meeting_id,
-            title=meeting_title,
-            audio_path=str(audio_path),
-            file_name=file_name,
-            file_size_bytes=file_size_bytes,
-            host_name=host_name or "Alex Johnson",
-            platform=PlatformType.UPLOAD,
-            recording_url=recording_url
-        )
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=400,
-            detail=f"Processing failed: {str(e)}"
-        )
+    # Insert initial processing state
+    from .db.database import get_db_connection
+    import datetime
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+        INSERT INTO meetings (
+            id, title, platform, meeting_url, uploaded_at, duration_seconds,
+            status, recording_url, host_name, participants_count, file_name,
+            file_size_bytes, error_message
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            meeting_id, meeting_title, PlatformType.UPLOAD.value, recording_url, datetime.datetime.utcnow().isoformat(), 0,
+            "processing", recording_url, host_name or "Alex Johnson", 0, file_name, file_size_bytes, None
+        ))
+        conn.commit()
+
+    background_tasks.add_task(
+        run_meeting_processing,
+        meeting_id=meeting_id,
+        title=meeting_title,
+        audio_path=str(audio_path),
+        file_name=file_name,
+        file_size_bytes=file_size_bytes,
+        host_name=host_name or "Alex Johnson",
+        recording_url=recording_url
+    )
 
     # Log audit event
     compliance_manager.log_audit_event(
@@ -231,9 +274,16 @@ async def upload_meeting_file(
 
     return {
         "success": True,
-        "message": "Audio processed successfully through Deepgram STT and LLM Pipeline.",
-        "meeting_id": meeting.id,
-        "meeting": meeting.dict()
+        "message": "Audio processing started in the background.",
+        "meeting_id": meeting_id,
+        "meeting": {
+            "id": meeting_id,
+            "title": meeting_title,
+            "status": "processing",
+            "host_name": host_name,
+            "file_name": file_name,
+            "file_size_bytes": file_size_bytes
+        }
     }
 
 # 10. POST /api/search
@@ -245,26 +295,40 @@ def search_meetings(payload: Dict[str, Any]):
     
     all_meetings = py_store.get_all_meetings()
     results = []
+    query_words = query.split()
     
     for m in all_meetings:
         if m.status != MeetingStatus.READY or not m.summary:
             continue
+
+        transcript_res = py_store.get_transcript(m.id)
+        if not transcript_res or not transcript_res.get("segments"):
+            continue
+
+        segment_dicts = transcript_res["segments"]
+        chunks = chunk_transcript(segment_dicts)
+
+        best_chunk = None
+        best_score = 0.0
         
-        text_corpus = f"{m.title} {m.summary.executive_summary} {' '.join(d.text for d in m.summary.key_decisions)} {' '.join(m.summary.topics)}".lower()
+        for chunk in chunks:
+            chunk_text = chunk["combined_text"].lower()
+            matches = sum(1 for w in query_words if w in chunk_text)
+            if matches > 0:
+                score = round(min(0.98, 0.45 + (matches / len(query_words)) * 0.50), 3)
+                if score > best_score:
+                    best_score = score
+                    best_chunk = chunk
         
-        score = 0.0
-        query_words = query.split()
-        matches = sum(1 for w in query_words if w in text_corpus)
-        if matches > 0:
-            score = round(min(0.98, 0.45 + (matches / len(query_words)) * 0.50), 3)
+        if best_chunk:
             results.append({
                 "meeting": m.dict(),
-                "similarity_score": score,
-                "matched_chunk_text": m.summary.executive_summary[:200] + "...",
+                "similarity_score": best_score,
+                "matched_chunk_text": best_chunk["combined_text"][:200] + "...",
                 "matched_segment": {
-                    "start_ms": 0,
-                    "end_ms": 14000,
-                    "speaker_label": m.speakers[0].speaker_label if m.speakers else "Speaker A"
+                    "start_ms": best_chunk["start_ms"],
+                    "end_ms": best_chunk["end_ms"],
+                    "speaker_label": best_chunk["speaker_labels"][0] if best_chunk["speaker_labels"] else "Speaker A"
                 }
             })
 
@@ -642,15 +706,32 @@ def v1_semantic_search(q: str = Query(..., description="Semantic search query te
     for m in all_meetings:
         if m.status != MeetingStatus.READY or not m.summary:
             continue
-        text_corpus = f"{m.title} {m.summary.executive_summary} {' '.join(d.text for d in m.summary.key_decisions)} {' '.join(m.summary.topics)}".lower()
-        matches = sum(1 for w in query_words if w in text_corpus)
-        if matches > 0:
-            score = round(min(0.98, 0.45 + (matches / len(query_words)) * 0.50), 3)
+
+        transcript_res = py_store.get_transcript(m.id)
+        if not transcript_res or not transcript_res.get("segments"):
+            continue
+
+        segment_dicts = transcript_res["segments"]
+        chunks = chunk_transcript(segment_dicts)
+
+        best_chunk = None
+        best_score = 0.0
+
+        for chunk in chunks:
+            chunk_text = chunk["combined_text"].lower()
+            matches = sum(1 for w in query_words if w in chunk_text)
+            if matches > 0:
+                score = round(min(0.98, 0.45 + (matches / len(query_words)) * 0.50), 3)
+                if score > best_score:
+                    best_score = score
+                    best_chunk = chunk
+
+        if best_chunk:
             results.append({
                 "meeting_id": m.id,
                 "title": m.title,
-                "similarity_score": score,
-                "matched_summary_excerpt": m.summary.executive_summary[:250] + "...",
+                "similarity_score": best_score,
+                "matched_summary_excerpt": best_chunk["combined_text"][:250] + "...",
                 "key_decisions": [d.text for d in m.summary.key_decisions[:2]]
             })
 
@@ -709,9 +790,10 @@ def v1_list_compliance_subjects():
     GET /v1/compliance/subjects -> List all indexed data subjects across meetings
     for GDPR Art. 17 / DPDP Sec. 12 Right to Erasure audits.
     """
+    subjects = py_store.get_subject_index()
     return {
-        "total_subjects": len(py_store.subject_index),
-        "subjects": py_store.get_subject_index()
+        "total_subjects": len(subjects),
+        "subjects": subjects
     }
 
 @v1_router.post("/compliance/purge-subject")
