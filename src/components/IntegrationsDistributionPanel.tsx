@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { DistributionRecord, ActionItem } from '../../types/index.ts';
-import { Share2, Send, ExternalLink, CheckCircle2, Sparkles, MessageSquare, Layers } from 'lucide-react';
+import { Share2, Send, ExternalLink, CheckCircle2, Sparkles, MessageSquare, Layers, Calendar, Users } from 'lucide-react';
 import { testSlackDispatch } from '../services/api.ts';
 
 interface IntegrationsDistributionPanelProps {
@@ -154,6 +154,71 @@ export const IntegrationsDistributionPanel: React.FC<IntegrationsDistributionPan
               </div>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* CRM and Calendar Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* CRM Integration */}
+        <div className="p-6 rounded-2xl border border-slate-800 bg-surface-900/80 glass-panel space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                <Users className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white tracking-tight">CRM Sync</h3>
+                <p className="text-xs text-slate-400">
+                  Meeting logged to Salesforce/HubSpot
+                </p>
+              </div>
+            </div>
+            {distribution?.crm_record_id ? (
+              <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 font-mono">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span>SYNCED</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-500/10 text-slate-400 border border-slate-500/30 font-mono">
+                <span>PENDING</span>
+              </span>
+            )}
+          </div>
+          <div className="text-xs text-slate-300 flex items-center justify-between bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
+            <span>Record ID: <strong className="font-mono text-indigo-300">{distribution?.crm_record_id || 'N/A'}</strong></span>
+            <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
+          </div>
+        </div>
+
+        {/* Calendar Integration */}
+        <div className="p-6 rounded-2xl border border-slate-800 bg-surface-900/80 glass-panel space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                <Calendar className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white tracking-tight">Calendar Update</h3>
+                <p className="text-xs text-slate-400">
+                  Event updated with meeting summary
+                </p>
+              </div>
+            </div>
+            {distribution?.calendar_event_id ? (
+              <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 font-mono">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span>UPDATED</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-500/10 text-slate-400 border border-slate-500/30 font-mono">
+                <span>PENDING</span>
+              </span>
+            )}
+          </div>
+          <div className="text-xs text-slate-300 flex items-center justify-between bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
+            <span>Event ID: <strong className="font-mono text-rose-300">{distribution?.calendar_event_id || 'N/A'}</strong></span>
+            <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
+          </div>
         </div>
       </div>
     </div>

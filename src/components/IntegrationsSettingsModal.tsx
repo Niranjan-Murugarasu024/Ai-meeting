@@ -23,6 +23,10 @@ export const IntegrationsSettingsModal: React.FC<IntegrationsSettingsModalProps>
     jira_domain: 'https://webenoid.atlassian.net',
     jira_project_key: 'ENG',
     linear_team_id: 'ENG',
+    salesforce_domain: 'https://webenoid.my.salesforce.com',
+    hubspot_api_key: 'pat-mock-hubspot-key',
+    google_calendar_token: 'mock_gcal_oauth_token',
+    outlook_calendar_token: 'mock_outlook_oauth_token',
   });
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -203,6 +207,56 @@ export const IntegrationsSettingsModal: React.FC<IntegrationsSettingsModalProps>
                 />
               </div>
             </div>
+
+            {/* CRM & Calendar Setup */}
+            <div className="pt-2">
+              <div className="flex items-center space-x-2 text-brand-400 font-mono text-sm border-b border-slate-800 pb-2 mb-3">
+                <span>CRM & Calendar Sync</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1.5">
+                  <p className="text-xs font-bold text-white">Salesforce Domain</p>
+                  <input
+                    type="text"
+                    value={config.salesforce_domain}
+                    onChange={e => setConfig({ ...config, salesforce_domain: e.target.value })}
+                    placeholder="https://your-domain.my.salesforce.com"
+                    className="w-full px-2.5 py-1 rounded bg-slate-900 border border-slate-700 text-xs text-slate-200 font-mono focus:outline-none focus:border-brand-500"
+                  />
+                </div>
+                <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1.5">
+                  <p className="text-xs font-bold text-white">HubSpot API Key</p>
+                  <input
+                    type="password"
+                    value={config.hubspot_api_key}
+                    onChange={e => setConfig({ ...config, hubspot_api_key: e.target.value })}
+                    placeholder="HubSpot Token"
+                    className="w-full px-2.5 py-1 rounded bg-slate-900 border border-slate-700 text-xs text-slate-200 font-mono focus:outline-none focus:border-brand-500"
+                  />
+                </div>
+                <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1.5">
+                  <p className="text-xs font-bold text-white">Google Calendar Token</p>
+                  <input
+                    type="password"
+                    value={config.google_calendar_token}
+                    onChange={e => setConfig({ ...config, google_calendar_token: e.target.value })}
+                    placeholder="OAuth Token"
+                    className="w-full px-2.5 py-1 rounded bg-slate-900 border border-slate-700 text-xs text-slate-200 font-mono focus:outline-none focus:border-brand-500"
+                  />
+                </div>
+                <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1.5">
+                  <p className="text-xs font-bold text-white">Outlook Calendar Token</p>
+                  <input
+                    type="password"
+                    value={config.outlook_calendar_token}
+                    onChange={e => setConfig({ ...config, outlook_calendar_token: e.target.value })}
+                    placeholder="OAuth Token"
+                    className="w-full px-2.5 py-1 rounded bg-slate-900 border border-slate-700 text-xs text-slate-200 font-mono focus:outline-none focus:border-brand-500"
+                  />
+                </div>
+              </div>
+            </div>
+
           </div>
 
           {/* SECTION 2: SLACK & DISTRIBUTION */}

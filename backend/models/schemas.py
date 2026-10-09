@@ -128,6 +128,8 @@ class DistributionRecord(BaseModel):
     slack_message_preview: Optional[str] = None
     jira_tasks_created: List[str] = Field(default_factory=list)
     linear_tasks_created: List[str] = Field(default_factory=list)
+    crm_record_id: Optional[str] = None
+    calendar_event_id: Optional[str] = None
     dispatched_at: Optional[str] = None
 
 class Summary(BaseModel):
@@ -194,6 +196,10 @@ class IntegrationsConfig(BaseModel):
     jira_domain: Optional[str] = "https://webenoid.atlassian.net"
     jira_project_key: str = "PROJ"
     linear_team_id: Optional[str] = "team_linear_eng"
+    salesforce_domain: Optional[str] = "https://webenoid.my.salesforce.com"
+    hubspot_api_key: Optional[str] = "pat-mock-hubspot-key"
+    google_calendar_token: Optional[str] = "mock_gcal_oauth_token"
+    outlook_calendar_token: Optional[str] = "mock_outlook_oauth_token"
 
 class SearchResult(BaseModel):
     meeting: Meeting
